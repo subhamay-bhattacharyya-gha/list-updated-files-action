@@ -15,14 +15,5 @@ outputs:
     description: 'A JSON array of modified file paths since the specified ref.'
 
 runs:
-  using: 'composite'
-  steps:
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Detect Modified Files
-      runs:
-        using: "node20"
-        main: "main.js"
+  using: "node20"
+  main: "main.js"
