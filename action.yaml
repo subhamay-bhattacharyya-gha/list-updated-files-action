@@ -1,19 +1,37 @@
-name: 'Detect Modified Files'
-description: 'Lists files modified since a specific Git ref and sets the output.'
+name: "List Modified Files"
+description: "Outputs a list of files modified in the current commit or between refs as a JSON array."
 
 inputs:
   ref:
-    description: 'Git reference to compare against (e.g., HEAD^, main).'
+    description: "Git reference to compare against (default: HEAD^)"
     required: false
-    default: 'HEAD^'
-  github-token:
-    description: 'GitHub token used for authentication (not currently used).'
-    required: true
+    default: "HEAD^"
 
 outputs:
-  modified_files:
-    description: 'A JSON array of modified file paths since the specified ref.'
+  modified-files:
+    description: "JSON array of modified file names"
 
 runs:
-  using: "node20"
-  main: "main.js"
+  using: "composite"
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Get list of modified files
+      shell: bash
+      run: |
+        set -e
+        echo "Comparing against ref: ${{ inputs.ref }}"
+        
+        # Try to get the diff; fallback to HEAD~1 if ref is invalid
+        if git rev-parse "${{ inputs.ref }}" >/dev/null 2>&1; then
+          REF=${{ inputs.ref }}
+        else
+          echo "⚠️ Ref ${{ inputs.ref }} is invalid, falling back to HEAD~1"
+          REF="HEAD~1"
+        fi
+
+        MODIFIED=$(git diff --name-only $REF HEAD | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+        echo "Modified files JSON: $MODIFIED"
+        echo "modified-files=$MODIFIED" >> "$GITHUB_OUTPUT"
