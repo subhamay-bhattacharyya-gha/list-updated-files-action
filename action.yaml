@@ -19,7 +19,7 @@ runs:
     - name: Fetch default branch and diff
       shell: bash
       run: |
-        set -euo pipefail
+        set -euxo pipefail
         git fetch origin
         DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
 
@@ -34,7 +34,7 @@ runs:
     - name: Generate changed_files.json
       shell: bash
       run: |
-        set -euo pipefail
+        set -euxo pipefail
         if [ ! -s changed_files.txt ]; then
           echo '{ "A": [], "M": [], "D": [] }' | jq '.' > changed_files.json
         else
@@ -65,7 +65,7 @@ runs:
     - name: Validate changed_files.json structure
       shell: bash
       run: |
-        set -euo pipefail
+        set -euxo pipefail
         if ! jq -e 'has("A") and has("M") and has("D") and (.A | type == "array") and (.M | type == "array") and (.D | type == "array")' changed_files.json > /dev/null; then
           echo "JSON schema validation failed ❌"
           exit 1
@@ -75,7 +75,7 @@ runs:
     - name: Print changed files as table summary
       shell: bash
       run: |
-        set -euo pipefail
+        set -euxo pipefail
         echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
         echo "| Status   | File | Size |" >> "$GITHUB_STEP_SUMMARY"
         echo "|----------|------|------|" >> "$GITHUB_STEP_SUMMARY"
@@ -87,6 +87,7 @@ runs:
         SIZE_MODIFIED=0
 
         while IFS=$'\t' read -r status file; do
+          RAW_SIZE=0
           SIZE="-"
           if [[ "$status" != "D" && -f "$file" ]]; then
             RAW_SIZE=$(stat -c%s "$file")
@@ -97,12 +98,12 @@ runs:
             A)
               echo "| ➕ Added    | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
               ((ADDED++))
-              ((SIZE_ADDED+=RAW_SIZE)) || true
+              ((SIZE_ADDED+=RAW_SIZE))
               ;;
             M)
               echo "| 📝 Modified | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
               ((MODIFIED++))
-              ((SIZE_MODIFIED+=RAW_SIZE)) || true
+              ((SIZE_MODIFIED+=RAW_SIZE))
               ;;
             D)
               echo "| ❌ Deleted  | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
@@ -119,7 +120,7 @@ runs:
     - name: Set output variables
       shell: bash
       run: |
-        set -euo pipefail
+        set -euxo pipefail
         if [ ! -s changed_files.txt ]; then
           echo "files-changed=" >> "$GITHUB_OUTPUT"
           echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
