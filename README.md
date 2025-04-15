@@ -1,33 +1,33 @@
-# 🔍 Detect Modified Files
+# 🔍 Detect Changed Files
 
 ![Commit activity](https://img.shields.io/github/commit-activity/t/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Last commit](https://img.shields.io/github/last-commit/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Release date](https://img.shields.io/github/release-date/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Repo size](https://img.shields.io/github/repo-size/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Directory file count](https://img.shields.io/github/directory-file-count/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Issues](https://img.shields.io/github/issues/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Top language](https://img.shields.io/github/languages/top/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Monthly commit activity](https://img.shields.io/github/commit-activity/m/subhamay-bhattacharyya-gha/list-updated-files-action)&nbsp;![Custom endpoint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/0ad4bc14464d4f48af6c71f1681035b6/raw/list-updated-files-action.json?)
 
-A GitHub Action that detects files modified since a specified Git reference and outputs the result as a JSON array.
-Useful for conditional workflows, selective deployment, or auditing code changes between commits.
+A GitHub Composite Action that detects added, modified, and deleted files compared to the default branch and outputs the result as a categorized JSON object. It also prints a Markdown table with emoji-enhanced summary in the GitHub Actions summary view.
 
 ---
 
 ## 📦 Features
 
-- Uses Git to detect modified files compared to a provided ref (default: `HEAD^`)
-- Outputs modified files as a JSON array to be used in subsequent workflow steps
-- Written as a JavaScript-based custom action using `node20` runtime
+- Compares working branch against the default branch
+- Categorizes files as ➕ Added, 📝 Modified, or ❌ Deleted
+- Outputs changes as a structured JSON and CSV string
+- Prints a Markdown summary table with counts and emojis
+- Uses `bash`, `awk`, and `jq` for efficient processing
 
 ---
 
 ## 🧰 Inputs
 
-| Name | Description | Required | Default |
-|------|-------------|----------|---------|
-| `ref` | Git reference to compare against (e.g., `HEAD^`, `main`, or a commit SHA) | ❌ | `HEAD^` |
+This composite action currently takes no inputs.
 
 ---
 
 ## 📤 Outputs
 
-| Name             | Description                               |
-|------------------|-------------------------------------------|
-| `modified_files` | A JSON array of file paths that were modified since the specified ref |
+| Name            | Description                                        |
+|----------------|----------------------------------------------------|
+| `files-changed`| Comma-separated list of all changed file paths     |
+| `json-output`  | Path to a JSON file containing grouped change sets |
 
 ---
 
@@ -36,7 +36,7 @@ Useful for conditional workflows, selective deployment, or auditing code changes
 ### Basic Example
 
 ```yaml
-name: Detect Modified Files
+name: Detect Changes
 
 on:
   push:
@@ -48,71 +48,61 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Detect modified files
+      - name: Detect repository changes
         id: detect
-        uses: your-org/detect-modified-files-action@v1
-        with:
-          ref: HEAD^  # optional; defaults to HEAD^
+        uses: subhamay-bhattacharyya-gha/list-updated-files-action@main
 
-      - name: Display modified files
+      - name: Print outputs
         run: |
-          echo "Modified files:"
-          echo "${{ steps.detect.outputs.modified_files }}"
+          echo "Files changed: ${{ steps.detect.outputs.files-changed }}"
+          cat ${{ steps.detect.outputs.json-output }}
 ```
 
 ---
 
 ## 🧪 Output Example
 
-The output will be a JSON array string:
+**`json-output`** file:
 
 ```json
-["src/index.js", "README.md", "workflow/build.yaml"]
+{
+  "A": ["src/new-file.ts"],
+  "M": ["src/updated-file.ts"],
+  "D": ["src/old-file.ts"]
+}
 ```
 
-You can consume it using matrix strategies or parse it in shell scripts as needed.
+**Markdown Summary in GitHub UI:**
 
----
+| Status   | File             |
+|----------|------------------|
+| ➕ Added    | src/new-file.ts    |
+| 📝 Modified | src/updated-file.ts |
+| ❌ Deleted  | src/old-file.ts     |
 
-## 🛠 Development
+**Summary:**
 
-### Local Setup
-
-To install dependencies:
-
-```bash
-npm install
-```
-
-### To Run Locally
-
-Ensure you're in a Git repository and have at least one commit:
-
-```bash
-node main.js
-```
+- 🟢 Added: 1
+- 🟡 Modified: 1
+- 🔴 Deleted: 1
 
 ---
 
 ## 📁 Repository Structure
 
-```
+```text
 .
-├── action.yaml        # Metadata for the GitHub Action
-├── main.js            # Action logic
-├── package.json       # Node.js dependencies
-├── README.md          # You're reading it!
+├── .github/actions/detect-changes/action.yml  # Composite action definition
+├── README.md                                  # You're reading it!
 ```
 
 ---
 
 ## 🧼 Notes
 
-- Requires Node.js `>=18` to run locally (matches GitHub runner environment).
-- This action does not push or comment — it only returns the list of modified files.
+- Requires no external dependencies other than bash, awk, and jq
+- Supports shallow clone detection via fetch-depth handling
+- Automatically prints a detailed and human-friendly summary
 
 ---
 
