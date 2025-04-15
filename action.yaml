@@ -19,6 +19,7 @@ runs:
     - name: Fetch default branch and diff
       shell: bash
       run: |
+        set -euo pipefail
         git fetch origin
         DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
 
@@ -33,6 +34,7 @@ runs:
     - name: Generate changed_files.json
       shell: bash
       run: |
+        set -euo pipefail
         if [ ! -s changed_files.txt ]; then
           echo '{ "A": [], "M": [], "D": [] }' | jq '.' > changed_files.json
         else
@@ -63,6 +65,7 @@ runs:
     - name: Validate changed_files.json structure
       shell: bash
       run: |
+        set -euo pipefail
         if ! jq -e 'has("A") and has("M") and has("D") and (.A | type == "array") and (.M | type == "array") and (.D | type == "array")' changed_files.json > /dev/null; then
           echo "JSON schema validation failed ❌"
           exit 1
@@ -72,39 +75,57 @@ runs:
     - name: Print changed files as table summary
       shell: bash
       run: |
+        set -euo pipefail
         echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
-        echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Status   | File | Size |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|----------|------|------|" >> "$GITHUB_STEP_SUMMARY"
 
         ADDED=0
         MODIFIED=0
         DELETED=0
+        SIZE_ADDED=0
+        SIZE_MODIFIED=0
 
         while IFS=$'\t' read -r status file; do
+          SIZE="-"
+          if [[ "$status" != "D" && -f "$file" ]]; then
+            RAW_SIZE=$(stat -c%s "$file")
+            SIZE=$(numfmt --to=iec-i --suffix=B "$RAW_SIZE")
+          fi
+
           case "$status" in
             A)
-              echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| ➕ Added    | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
               ((ADDED++))
+              ((SIZE_ADDED+=RAW_SIZE)) || true
               ;;
             M)
-              echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 📝 Modified | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
               ((MODIFIED++))
+              ((SIZE_MODIFIED+=RAW_SIZE)) || true
               ;;
             D)
-              echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| ❌ Deleted  | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
               ((DELETED++))
               ;;
           esac
         done < changed_files.txt
 
         echo -e "\n**Summary**:" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟢 Added: $ADDED" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟡 Modified: $MODIFIED" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟢 Added: $ADDED (Total: $(numfmt --to=iec-i --suffix=B $SIZE_ADDED))" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟡 Modified: $MODIFIED (Total: $(numfmt --to=iec-i --suffix=B $SIZE_MODIFIED))" >> "$GITHUB_STEP_SUMMARY"
         echo "- 🔴 Deleted: $DELETED" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Set output variables
       shell: bash
       run: |
-        FILE_LIST=$(cut -f2 changed_files.txt | paste -sd ',' -)
+        set -euo pipefail
+        if [ ! -s changed_files.txt ]; then
+          echo "files-changed=" >> "$GITHUB_OUTPUT"
+          echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' -)
         echo "files-changed=$FILE_LIST" >> "$GITHUB_OUTPUT"
         echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
