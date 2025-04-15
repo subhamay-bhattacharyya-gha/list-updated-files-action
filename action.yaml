@@ -80,26 +80,18 @@ runs:
         echo "| Status   | File | Size |" >> "$GITHUB_STEP_SUMMARY"
         echo "|----------|------|------|" >> "$GITHUB_STEP_SUMMARY"
 
-        declare -i ADDED=0 MODIFIED=0 DELETED=0
-        declare -i SIZE_ADDED=0 SIZE_MODIFIED=0
-
         while IFS=$'\t' read -r status file; do
           echo "> Processing: $status $file"
 
           case "$status" in
             A)
               echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ((ADDED++))
-              ((SIZE_ADDED+=RAW_SIZE))
               ;;
             M)
               echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ((MODIFIED++))
-              ((SIZE_MODIFIED+=RAW_SIZE))
               ;;
             D)
               echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ((DELETED++))
               ;;
           esac
         done < changed_files.txt
