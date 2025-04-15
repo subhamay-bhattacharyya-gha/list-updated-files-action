@@ -77,8 +77,8 @@ runs:
       run: |
         set -euxo pipefail
         echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status   | File | Size |" >> "$GITHUB_STEP_SUMMARY"
-        echo "|----------|------|------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
 
         while IFS=$'\t' read -r status file; do
           echo "> Processing: $status $file"
