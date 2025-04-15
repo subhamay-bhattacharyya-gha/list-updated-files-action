@@ -111,5 +111,6 @@ runs:
 
         FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' - || echo "")
         echo "files-changed=${FILE_LIST}" >> "$GITHUB_OUTPUT"
-        echo "json-output='`cat changed_files.json`'" >> "$GITHUB_OUTPUT"
+        ENCODED_JSON=$(base64 -w 0 changed_files.json)
+        echo "json-output=${ENCODED_JSON}" >> "$GITHUB_OUTPUT"
         echo "has-changes=true" >> "$GITHUB_OUTPUT"
