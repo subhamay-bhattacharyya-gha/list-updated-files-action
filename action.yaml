@@ -5,10 +5,13 @@ inputs: {}
 outputs:
   files-changed:
     description: "Comma-separated list of changed files"
+    value: ${{ steps.repo-changes.outputs.files-changed }}
   json-output:
     description: "Base64-encoded JSON object containing categorized file changes"
+    value: ${{ steps.repo-changes.outputs.json-output }}
   has-changes:
     description: "Boolean indicator if any files were changed"
+    value: ${{ steps.repo-changes.outputs.has-changes }}
 
 runs:
   using: "composite"
@@ -98,6 +101,7 @@ runs:
         done < changed_files.txt
 
     - name: Set output variables
+      id: repo-changes
       shell: bash
       run: |
         set -euxo pipefail
