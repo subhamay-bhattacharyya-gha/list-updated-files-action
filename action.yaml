@@ -7,6 +7,8 @@ outputs:
     description: "Comma-separated list of changed files"
   json-output:
     description: "JSON file path with categorized changes"
+  has-changes:
+    description: "Boolean indicator if any files were changed"
 
 runs:
   using: "composite"
@@ -80,32 +82,44 @@ runs:
         echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
         echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
 
+        declare -i ADDED=0 MODIFIED=0 DELETED=0
+
         while IFS=$'\t' read -r status file; do
           echo "> Processing: $status $file"
-
           case "$status" in
             A)
               echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ((ADDED++))
               ;;
             M)
               echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ((MODIFIED++))
               ;;
             D)
               echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ((DELETED++))
               ;;
           esac
         done < changed_files.txt
+
+        echo -e "\n**Summary**:" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟢 Added: $ADDED" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟡 Modified: $MODIFIED" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🔴 Deleted: $DELETED" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Set output variables
       shell: bash
       run: |
         set -euxo pipefail
         if [ ! -s changed_files.txt ]; then
+          # No changed files detected
           echo "files-changed=" >> "$GITHUB_OUTPUT"
           echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
+          echo "has-changes=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' -)
-        echo "files-changed=$FILE_LIST" >> "$GITHUB_OUTPUT"
+        FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' - || echo "")
+        echo "files-changed=${FILE_LIST}" >> "$GITHUB_OUTPUT"
         echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
+        echo "has-changes=true" >> "$GITHUB_OUTPUT"
