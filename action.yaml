@@ -85,26 +85,20 @@ runs:
 
         while IFS=$'\t' read -r status file; do
           echo "> Processing: $status $file"
-          RAW_SIZE=0
-          SIZE="-"
-          if [[ "$status" != "D" && -f "$file" ]]; then
-            RAW_SIZE=$(stat -c%s "$file")
-            SIZE=$(numfmt --to=iec-i --suffix=B "$RAW_SIZE" || echo "-")
-          fi
 
           case "$status" in
             A)
-              echo "| ➕ Added    | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
               ((ADDED++))
               ((SIZE_ADDED+=RAW_SIZE))
               ;;
             M)
-              echo "| 📝 Modified | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
               ((MODIFIED++))
               ((SIZE_MODIFIED+=RAW_SIZE))
               ;;
             D)
-              echo "| ❌ Deleted  | $file | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
               ((DELETED++))
               ;;
           esac
