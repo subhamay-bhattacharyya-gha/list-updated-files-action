@@ -80,13 +80,11 @@ runs:
         echo "| Status   | File | Size |" >> "$GITHUB_STEP_SUMMARY"
         echo "|----------|------|------|" >> "$GITHUB_STEP_SUMMARY"
 
-        ADDED=0
-        MODIFIED=0
-        DELETED=0
-        SIZE_ADDED=0
-        SIZE_MODIFIED=0
+        ADDED=0; MODIFIED=0; DELETED=0
+        SIZE_ADDED=0; SIZE_MODIFIED=0
 
         while IFS=$'\t' read -r status file; do
+          echo "> Processing: $status $file"
           RAW_SIZE=0
           SIZE="-"
           if [[ "$status" != "D" && -f "$file" ]]; then
@@ -113,8 +111,8 @@ runs:
         done < changed_files.txt
 
         echo -e "\n**Summary**:" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟢 Added: $ADDED (Total: $(numfmt --to=iec-i --suffix=B $SIZE_ADDED))" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟡 Modified: $MODIFIED (Total: $(numfmt --to=iec-i --suffix=B $SIZE_MODIFIED))" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟢 Added: $ADDED (Total: $(numfmt --to=iec-i --suffix=B "$SIZE_ADDED"))" >> "$GITHUB_STEP_SUMMARY"
+        echo "- 🟡 Modified: $MODIFIED (Total: $(numfmt --to=iec-i --suffix=B "$SIZE_MODIFIED"))" >> "$GITHUB_STEP_SUMMARY"
         echo "- 🔴 Deleted: $DELETED" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Set output variables
