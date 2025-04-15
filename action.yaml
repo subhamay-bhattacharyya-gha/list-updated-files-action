@@ -110,11 +110,6 @@ runs:
           esac
         done < changed_files.txt
 
-        echo -e "\n**Summary**:" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟢 Added: $ADDED (Total: $(numfmt --to=iec-i --suffix=B "$SIZE_ADDED" || echo "-") )" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🟡 Modified: $MODIFIED (Total: $(numfmt --to=iec-i --suffix=B "$SIZE_MODIFIED" || echo "-") )" >> "$GITHUB_STEP_SUMMARY"
-        echo "- 🔴 Deleted: $DELETED" >> "$GITHUB_STEP_SUMMARY"
-
     - name: Set output variables
       shell: bash
       run: |
