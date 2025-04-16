@@ -24,10 +24,11 @@ This composite action currently takes no inputs.
 
 ## 📤 Outputs
 
-| Name            | Description                                        |
+| Name           | Description                                        |
 |----------------|----------------------------------------------------|
 | `files-changed`| Comma-separated list of all changed file paths     |
 | `json-output`  | Path to a JSON file containing grouped change sets |
+|  `has-changes` | Boolean indicator if any files were changed        |
 
 ---
 
