@@ -1,44 +1,120 @@
-name: 'Action Name'
-description: 'Action Description'
+name: "Detect Repository Changes"
+description: "Detects added, modified, and deleted files against the default branch and generates a JSON summary."
 
-inputs:
-  input-1:
-    description: Input description.
-    required: false
-    default: default-value
-  input-2:
-    description: Input description.
-    required: false
-    default: default-value
-  input-3:
-    description: Input description.
-    required: false
-    default: default-value
-  github-token:
-    description: 'GitHub token'
-    required: true
+inputs: {}
+outputs:
+  files-changed:
+    description: "Comma-separated list of changed files"
+    value: ${{ steps.repo-changes.outputs.files-changed }}
+  json-output:
+    description: "Base64-encoded JSON object containing categorized file changes"
+    value: ${{ steps.repo-changes.outputs.json-output }}
+  has-changes:
+    description: "Boolean indicator if any files were changed"
+    value: ${{ steps.repo-changes.outputs.has-changes }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Checkout with sufficient history
+      uses: actions/checkout@v4
       with:
-        python-version: 3.x
+        fetch-depth: 2
 
-    - name: Sample step to call GitHub API
+    - name: Fetch default branch and diff
       shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        ISSUE_NUMBER="${{ github.event.issue.number }}"
-        REPO="${{ github.repository }}"
-        OWNER=$(echo $REPO | cut -d'/' -f1)
-        BRANCH_NAME="${{ steps.create-branch.outputs.branch-name }}"
-        COMMENT_BODY="Branch [$BRANCH_NAME](https://github.com/$OWNER/$REPO/tree/$BRANCH_NAME) created 🚀"
+        set -euxo pipefail
+        git fetch origin
+        DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
 
-        curl -s -X POST \
-          -H "Authorization: token $GITHUB_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "{\"body\": \"$COMMENT_BODY\"}" \
-          https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER/comments
+        if git diff --name-status origin/$DEFAULT_BRANCH > changed_files.txt 2>/dev/null; then
+          cat changed_files.txt
+        else
+          echo "Could not get diff with default branch — using diff-tree fallback."
+          git diff-tree --no-commit-id --name-status -r HEAD > changed_files.txt
+          cat changed_files.txt
+        fi
+
+    - name: Generate changed_files.json
+      shell: bash
+      run: |
+        set -euxo pipefail
+        if [ ! -s changed_files.txt ]; then
+          echo '{ "A": [], "M": [], "D": [] }' | jq '.' > changed_files.json
+        else
+          awk '
+          BEGIN {
+            print "{"
+            added = modified = deleted = ""
+          }
+          {
+            status = $1
+            file = $2
+            if (status == "A") added = added "\"" file "\",";
+            else if (status == "M") modified = modified "\"" file "\",";
+            else if (status == "D") deleted = deleted "\"" file "\",";
+          }
+          END {
+            if (length(added)) added = substr(added, 1, length(added)-1)
+            if (length(modified)) modified = substr(modified, 1, length(modified)-1)
+            if (length(deleted)) deleted = substr(deleted, 1, length(deleted)-1)
+            print "  \"A\": [" added "],"
+            print "  \"M\": [" modified "],"
+            print "  \"D\": [" deleted "]"
+            print "}"
+          }' changed_files.txt | jq '.' > changed_files.json
+        fi
+        cat changed_files.json
+
+    - name: Validate changed_files.json structure
+      shell: bash
+      run: |
+        set -euxo pipefail
+        if ! jq -e 'has("A") and has("M") and has("D") and (.A | type == "array") and (.M | type == "array") and (.D | type == "array")' changed_files.json > /dev/null; then
+          echo "JSON schema validation failed ❌"
+          exit 1
+        fi
+        echo "JSON schema validation passed ✅"
+
+    - name: Print changed files as table summary
+      shell: bash
+      run: |
+        set -euxo pipefail
+        echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
+
+        while IFS=$'\t' read -r status file; do
+          echo "> Processing: $status $file"
+          case "$status" in
+            A)
+              echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            M)
+              echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            D)
+              echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+        done < changed_files.txt
+
+    - name: Set output variables
+      id: repo-changes
+      shell: bash
+      run: |
+        set -euxo pipefail
+        if [ ! -s changed_files.txt ]; then
+          # No changed files detected
+          echo "files-changed=" >> "$GITHUB_OUTPUT"
+          echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
+          echo "has-changes=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' - || echo "")
+        echo "files-changed=${FILE_LIST}" >> "$GITHUB_OUTPUT"
+        ENCODED_JSON=$(base64 -w 0 changed_files.json)
+        echo "json-output=${ENCODED_JSON}" >> "$GITHUB_OUTPUT"
+        echo "has-changes=true" >> "$GITHUB_OUTPUT"
