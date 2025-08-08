@@ -1,5 +1,5 @@
 name: "Detect Repository Changes"
-description: "Detects added, modified, and deleted files against the default branch and generates a JSON summary."
+description: "Detects added, modified, deleted, renamed, and type-changed files; outputs a JSON summary."
 
 inputs: {}
 outputs:
@@ -25,17 +25,12 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-
-        # Full history so we have parents for merge commits
         git fetch --no-tags --prune --depth=0 origin
 
         EVENT_NAME="${GITHUB_EVENT_NAME:-}"
-        DIFF_RANGE=""
-        # Prefer explicit SHAs from the event payload when available
         if [[ "$EVENT_NAME" == "push" ]]; then
           BEFORE="$(jq -r '.before' "$GITHUB_EVENT_PATH")"
           AFTER="$(jq -r '.after' "$GITHUB_EVENT_PATH")"
-          # Fallback to parent if before is missing (rare)
           if [[ "$BEFORE" == "null" || -z "$BEFORE" ]]; then
             BEFORE="$(git rev-parse HEAD^)"
           fi
@@ -45,13 +40,11 @@ runs:
           HEAD_SHA="$(jq -r '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
           DIFF_RANGE="${BASE_SHA}..${HEAD_SHA}"
         else
-          # Manual runs, scheduled, etc.: compare default branch to HEAD
           DEFAULT_BRANCH="$(git remote show origin | awk '/HEAD branch/ {print $NF}')"
           DIFF_RANGE="origin/${DEFAULT_BRANCH}..HEAD"
         fi
 
         echo "Using diff range: ${DIFF_RANGE}"
-        # Name-status tab-delimited output
         git diff --name-status "${DIFF_RANGE}" > changed_files.txt || true
         cat changed_files.txt || true
 
@@ -61,102 +54,89 @@ runs:
       run: |
         set -euo pipefail
         if [[ ! -s changed_files.txt ]]; then
-          JSON='{"A":[],"M":[],"D":[]}'
+          JSON='{"A":[],"M":[],"D":[],"R":[],"T":[]}'
         else
-          JSON=$(awk '
-            BEGIN { print "{"; a=m=d="" }
-            { s=$1; $1=""; sub(/^\t/,""); f=$0;
-              if (s=="A") a=a "\"" f "\",";
-              else if (s=="M") m=m "\"" f "\",";
-              else if (s=="D") d=d "\"" f "\",";
+          # Parse name-status with tabs; handle Rxxx old->new and T (type change)
+          JSON=$(awk -F '\t' '
+            BEGIN { a=m=d=t=""; r="" }
+            {
+              s=$1
+              if (s=="A") { a=a "\"" $2 "\"," }
+              else if (s=="M") { m=m "\"" $2 "\"," }
+              else if (s=="D") { d=d "\"" $2 "\"," }
+              else if (s=="T") { t=t "\"" $2 "\"," }
+              else if (s ~ /^R[0-9]*/ ) {
+                # rename lines have 3 fields: status, old, new
+                r=r "{\"from\":\"" $2 "\",\"to\":\"" $3 "\"},"
+              }
             }
             END {
-              if (length(a)) a=substr(a,1,length(a)-1);
-              if (length(m)) m=substr(m,1,length(m)-1);
-              if (length(d)) d=substr(d,1,length(d)-1);
-              printf "  \"A\":[%s],\n  \"M\":[%s],\n  \"D\":[%s]\n}\n", a, m, d;
+              if (length(a)) a=substr(a,1,length(a)-1)
+              if (length(m)) m=substr(m,1,length(m)-1)
+              if (length(d)) d=substr(d,1,length(d)-1)
+              if (length(t)) t=substr(t,1,length(t)-1)
+              if (length(r)) r=substr(r,1,length(r)-1)
+              printf "{\n  \"A\":[%s],\n  \"M\":[%s],\n  \"D\":[%s],\n  \"R\":[%s],\n  \"T\":[%s]\n}\n", a, m, d, r, t
             }' changed_files.txt)
         fi
         echo "$JSON" | jq '.' > changed_files.json
         cat changed_files.json
-        # Outputs for later steps
-        FILE_LIST=$(awk '{print $2}' changed_files.txt | paste -sd ',' - || true)
-        echo "files_list=${FILE_LIST}" >> "$GITHUB_OUTPUT"
-        echo "json_b64=$(base64 -w 0 changed_files.json)" >> "$GITHUB_OUTPUT"
-        if [[ -s changed_files.txt ]]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
 
     - name: Print changed files as table summary
       if: always()
       shell: bash
       run: |
-        echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
-        echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
-        while IFS=$'\t' read -r status file; do
-          [[ -z "${status:-}" || -z "${file:-}" ]] && continue
+        {
+          echo "### Changed Files (Grouped by Status)"
+          echo "| Status   | File |"
+          echo "|----------|------|"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Read up to 3 tab-separated fields so we can show renames
+        while IFS=$'\t' read -r status col2 col3; do
+          [[ -z "${status:-}" || -z "${col2:-}" ]] && continue
           case "$status" in
-            A) echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY" ;;
-            M) echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY" ;;
-            D) echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY" ;;
+            A) echo "| ➕ Added    | $col2 |" >> "$GITHUB_STEP_SUMMARY" ;;
+            M) echo "| 📝 Modified | $col2 |" >> "$GITHUB_STEP_SUMMARY" ;;
+            D) echo "| ❌ Deleted  | $col2 |" >> "$GITHUB_STEP_SUMMARY" ;;
+            T) echo "| 🔀 Type Chg | $col2 |" >> "$GITHUB_STEP_SUMMARY" ;;
+            R*) echo "| 🔁 Renamed  | $col2 → $col3 |" >> "$GITHUB_STEP_SUMMARY" ;;
           esac
         done < changed_files.txt
+
+    - name: Validate changed_files.json structure
+      shell: bash
+      run: |
+        set -euo pipefail
+        jq -e '
+          has("A") and has("M") and has("D") and has("R") and has("T")
+          and (.A | type=="array")
+          and (.M | type=="array")
+          and (.D | type=="array")
+          and (.T | type=="array")
+          and (.R | type=="array")
+          and ( .R | all(type=="object" and has("from") and has("to") and (.from|type=="string") and (.to|type=="string")) )
+        ' changed_files.json > /dev/null
+        echo "JSON schema validation passed ✅"
 
     - name: Set composite outputs
       id: repo-changes
       shell: bash
       run: |
-        echo "files-changed=${{ steps.gen-json.outputs.files_list }}" >> "$GITHUB_OUTPUT"
-        echo "json-output=${{ steps.gen-json.outputs.json_b64 }}" >> "$GITHUB_OUTPUT"
-        echo "has-changes=${{ steps.gen-json.outputs.has }}" >> "$GITHUB_OUTPUT"
-
-    - name: Validate changed_files.json structure
-      shell: bash
-      run: |
-        set -euxo pipefail
-        if ! jq -e 'has("A") and has("M") and has("D") and (.A | type == "array") and (.M | type == "array") and (.D | type == "array")' changed_files.json > /dev/null; then
-          echo "JSON schema validation failed ❌"
-          exit 1
-        fi
-        echo "JSON schema validation passed ✅"
-
-    - name: Print changed files as table summary
-      shell: bash
-      run: |
-        set -euxo pipefail
-        echo "### Changed Files (Grouped by Status)" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status   | File |" >> "$GITHUB_STEP_SUMMARY"
-        echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
-
-        while IFS=$'\t' read -r status file; do
-          echo "> Processing: $status $file"
-          case "$status" in
-            A)
-              echo "| ➕ Added    | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            M)
-              echo "| 📝 Modified | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            D)
-              echo "| ❌ Deleted  | $file |" >> "$GITHUB_STEP_SUMMARY"
-              ;;
-          esac
-        done < changed_files.txt
-
-    - name: Set output variables
-      id: repo-changes
-      shell: bash
-      run: |
-        set -euxo pipefail
-        if [ ! -s changed_files.txt ]; then
-          # No changed files detected
+        set -euo pipefail
+        if [[ -s changed_files.txt ]]; then
+          # For files-changed, include new paths for renames to keep it simple
+          FILE_LIST=$(awk -F '\t' '{
+            if ($1 ~ /^R/) print $3; else print $2
+          }' changed_files.txt | paste -sd ',' - || true)
+          echo "files-changed=${FILE_LIST}" >> "$GITHUB_OUTPUT"
+          # Portable base64 (works on macOS too): remove newlines
+          JSON_B64=$(base64 changed_files.json | tr -d '\n')
+          echo "json-output=${JSON_B64}" >> "$GITHUB_OUTPUT"
+          echo "has-changes=true" >> "$GITHUB_OUTPUT"
+        else
           echo "files-changed=" >> "$GITHUB_OUTPUT"
-          echo "json-output=changed_files.json" >> "$GITHUB_OUTPUT"
+          JSON_B64=$(printf %s '{"A":[],"M":[],"D":[],"R":[],"T":[]}' | base64 | tr -d '\n')
+          echo "json-output=${JSON_B64}" >> "$GITHUB_OUTPUT"
           echo "has-changes=false" >> "$GITHUB_OUTPUT"
-          exit 0
         fi
-
-        FILE_LIST=$(awk '{ print $2 }' changed_files.txt | paste -sd ',' - || echo "")
-        echo "files-changed=${FILE_LIST}" >> "$GITHUB_OUTPUT"
-        ENCODED_JSON=$(base64 -w 0 changed_files.json)
-        echo "json-output=${ENCODED_JSON}" >> "$GITHUB_OUTPUT"
-        echo "has-changes=true" >> "$GITHUB_OUTPUT"
